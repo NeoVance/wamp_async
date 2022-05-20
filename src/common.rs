@@ -74,7 +74,6 @@ impl SubOptions {
         };
 
         options.insert("match".to_string(), Arg::String(match_option.to_owned()));
-
         SubOptions(Some(options))
     }
 
