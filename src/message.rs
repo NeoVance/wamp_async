@@ -22,12 +22,14 @@ pub const UNSUBSCRIBE_ID: WampInteger = 34;
 pub const UNSUBSCRIBED_ID: WampInteger = 35;
 pub const EVENT_ID: WampInteger = 36;
 pub const CALL_ID: WampInteger = 48;
+pub const CANCEL_ID: WampInteger = 49;
 pub const RESULT_ID: WampInteger = 50;
 pub const REGISTER_ID: WampInteger = 64;
 pub const REGISTERED_ID: WampInteger = 65;
 pub const UNREGISTER_ID: WampInteger = 66;
 pub const UNREGISTERED_ID: WampInteger = 67;
 pub const INVOCATION_ID: WampInteger = 68;
+pub const INTERRUPT_ID: WampInteger = 69;
 pub const YIELD_ID: WampInteger = 70;
 
 /// WAMP message
@@ -107,6 +109,11 @@ pub enum Msg {
         arguments: Option<WampArgs>,
         arguments_kw: Option<WampKwArgs>,
     },
+    /// Caller to Dealer cancel a running RPC.
+    Cancel {
+        request: WampId,
+        options: WampDict,
+    },
     /// Result of a call as returned by Dealer to Caller.
     Result {
         request: WampId,
@@ -140,6 +147,11 @@ pub enum Msg {
         arguments: Option<WampArgs>,
         arguments_kw: Option<WampKwArgs>,
     },
+    /// Dealer message to Callee asking to cancel an Invokation.
+    Interrupt {
+        request: WampId,
+        options: WampDict,
+    },
     /// Actual yield from an endpoint sent by a Callee to Dealer.
     Yield {
         request: WampId,
@@ -160,11 +172,14 @@ impl Msg {
             Msg::Unsubscribe { ref request, .. } => request,
             Msg::Unsubscribed { ref request } => request,
             Msg::Call { ref request, .. } => request,
+            Msg::Cancel { ref request, .. } => request,
             Msg::Result { ref request, .. } => request,
             Msg::Register { ref request, .. } => request,
             Msg::Registered { ref request, .. } => request,
             Msg::Unregister { ref request, .. } => request,
             Msg::Unregistered { ref request } => request,
+            Msg::Invocation { ref request, .. } => request,
+            Msg::Interrupt { ref request, .. } => request,
             Msg::Yield { ref request, .. } => request,
             Msg::Hello { .. }
             | Msg::Welcome { .. }
@@ -172,8 +187,7 @@ impl Msg {
             | Msg::Challenge { .. }
             | Msg::Authenticate { .. }
             | Msg::Goodbye { .. }
-            | Msg::Event { .. }
-            | Msg::Invocation { .. } => return None,
+            | Msg::Event { .. } => return None,
         })
     }
 }
@@ -325,6 +339,10 @@ impl Serialize for Msg {
                     (CALL_ID, request, options, procedure).serialize(serializer)
                 }
             }
+            Msg::Cancel {
+                ref request,
+                ref options,
+            } => (CANCEL_ID, request, options).serialize(serializer),
             Msg::Result {
                 ref request,
                 ref details,
@@ -383,6 +401,10 @@ impl Serialize for Msg {
                     (INVOCATION_ID, request, registration, details).serialize(serializer)
                 }
             }
+            Msg::Interrupt {
+                ref request,
+                ref options,
+            } => (INTERRUPT_ID, request, options).serialize(serializer),
             Msg::Yield {
                 ref request,
                 ref options,
@@ -589,6 +611,17 @@ impl<'de> Deserialize<'de> for Msg {
                     arguments_kw: v.next_element()?.unwrap_or(None),
                 })
             }
+            // In case we want to implement the Dealer role?
+            fn de_cancel<'de, V: SeqAccess<'de>>(&self, mut v: V) -> Result<Msg, V::Error> {
+                Ok(Msg::Cancel {
+                    request: v
+                        .next_element()?
+                        .ok_or_else(|| Error::missing_field("request"))?,
+                    options: v
+                        .next_element()?
+                        .ok_or_else(|| Error::missing_field("options"))?,
+                })
+            }
             fn de_result<'de, V: SeqAccess<'de>>(&self, mut v: V) -> Result<Msg, V::Error> {
                 Ok(Msg::Result {
                     request: v
@@ -656,6 +689,15 @@ impl<'de> Deserialize<'de> for Msg {
                     arguments_kw: v.next_element()?.unwrap_or(None),
                 })
             }
+            fn de_interrupt<'de, V: SeqAccess<'de>>(&self, mut v: V) -> Result<Msg, V::Error> {
+                Ok(Msg::Interrupt {
+                    request: v
+                        .next_element()?
+                        .ok_or_else(|| Error::missing_field("request"))?,
+                    options: v.next_element()?
+                        .ok_or_else(|| Error::missing_field("options"))?,
+                })
+            }
             fn de_yield<'de, V: SeqAccess<'de>>(&self, mut v: V) -> Result<Msg, V::Error> {
                 Ok(Msg::Yield {
                     request: v
@@ -700,12 +742,14 @@ impl<'de> Deserialize<'de> for Msg {
                     UNSUBSCRIBED_ID => self.de_unsubscribed(v),
                     EVENT_ID => self.de_event(v),
                     CALL_ID => self.de_call(v),
+                    CANCEL_ID => self.de_cancel(v),
                     RESULT_ID => self.de_result(v),
                     REGISTER_ID => self.de_register(v),
                     REGISTERED_ID => self.de_registered(v),
                     UNREGISTER_ID => self.de_unregister(v),
                     UNREGISTERED_ID => self.de_unregistered(v),
                     INVOCATION_ID => self.de_invocation(v),
+                    INTERRUPT_ID => self.de_interrupt(v),
                     YIELD_ID => self.de_yield(v),
                     id => Err(Error::custom(format!("Unknown message id : {}", id))),
                 }
