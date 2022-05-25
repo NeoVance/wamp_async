@@ -1,5 +1,7 @@
-mod subscription;
+mod subscribe;
+mod cancel;
 mod option;
 
 pub use option::OptionBuilder;
-pub use subscription::SubscribeOptions;
+pub use subscribe::SubscribeOptions;
+pub use cancel::CancelOptions;

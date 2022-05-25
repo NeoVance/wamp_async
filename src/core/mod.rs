@@ -272,6 +272,7 @@ impl<'a> Core<'a> {
                 )
                 .await
             }
+            Msg::Interrupt { request, options } => recv::interrupt(self, request, options).await,
             Msg::Result {
                 request,
                 details,
@@ -336,7 +337,7 @@ impl<'a> Core<'a> {
             }
             Request::Unregister { rpc_id, res } => send::unregister(self, rpc_id, res).await,
             Request::InvocationResult { request, res } => {
-                send::invoke_yield(self, request, res).await
+                send::invoke_yield(self, request, WampDict::new(), res).await
             }
             Request::Call {
                 uri,
@@ -344,7 +345,9 @@ impl<'a> Core<'a> {
                 arguments,
                 arguments_kw,
                 res,
-            } => send::call(self, uri, options, arguments, arguments_kw, res).await,
+                can,
+            } => send::call(self, uri, options, arguments, arguments_kw, res, can).await,
+            Request::Cancel { request, options, res } => send::cancel(self, request, options, res).await,
         }
     }
 

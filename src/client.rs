@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::future::Future;
 use futures::FutureExt;
 
@@ -14,6 +15,9 @@ use crate::core::*;
 use crate::error::*;
 use crate::options::*;
 use crate::serializer::SerializerType;
+
+use crate::spawn;
+use crate::WampCallResult;
 
 /// Options one can set when connecting to a WAMP server
 pub struct ClientConfig {
@@ -565,21 +569,58 @@ impl<'a> Client<'a> {
         Ok(())
     }
 
+    pub async fn cancel(
+        &self,
+        request: WampId,
+        options: WampDict,
+    ) -> Result<WampId, WampError> {
+        let (res, result) = oneshot::channel();
+
+        // Send the request
+        if let Err(e) = self.ctl_channel.send(Request::Cancel {
+            request,
+            options,
+            res,
+        }) {
+            return Err(From::from(format!(
+                "Request cancel failed : {}",
+                e
+            )));
+        }
+
+        match result.await {
+            Ok(Ok(Some(r))) => Ok(r),
+            Ok(Ok(None)) => Err(From::from("No request ID with cancellation".to_owned())),
+            Ok(Err(e)) => Err(From::from(format!(
+                "Unknown error from Core during cancellation : {}",
+                e
+            ))),
+            Err(e) => Err(From::from(format!(
+                "Core never responded to our request to cancel : {}",
+                e
+            ))),
+        }
+    }
+
     /// Calls a registered RPC endpoint on the server
     pub async fn call<T: AsRef<str>>(
-        &self,
+        &'a mut self,
         uri: T,
         arguments: Option<WampArgs>,
         arguments_kw: Option<WampKwArgs>,
-    ) -> Result<(Option<WampArgs>, Option<WampKwArgs>), WampError> {
-        // Send the request
+    ) -> Result<WampCallResult<'_, Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>>, WampError> {
         let (res, result) = oneshot::channel();
+        let (can, cancel) = oneshot::channel();
+        let uri = uri.as_ref().to_string();
+
+        // Send the request
         if let Err(e) = self.ctl_channel.send(Request::Call {
-            uri: uri.as_ref().to_string(),
+            uri: uri,
             options: WampDict::new(),
             arguments,
             arguments_kw,
             res,
+            can,
         }) {
             return Err(From::from(format!(
                 "Core never received our request : {}",
@@ -587,9 +628,23 @@ impl<'a> Client<'a> {
             )));
         }
 
-        // Wait for the result
-        match result.await {
-            Ok(r) => r,
+        match cancel.await {
+            Ok(Ok(id)) => {
+                Ok(spawn(id, self, async {
+                    // Wait for the result
+                    match result.await {
+                        Ok(r) => r,
+                        Err(e) => Err(From::from(format!(
+                            "Core never returned a response : {}",
+                            e
+                        ))),
+                    }
+                }))
+            },
+            Ok(Err(e)) => Err(From::from(format!(
+                "Core never returned a response : {}",
+                e
+            ))),
             Err(e) => Err(From::from(format!(
                 "Core never returned a response : {}",
                 e

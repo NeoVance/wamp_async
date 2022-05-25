@@ -57,7 +57,19 @@ pub enum Request<'a> {
         arguments: Option<WampArgs>,
         arguments_kw: Option<WampKwArgs>,
         res: PendingCallResult,
+        can: Sender<Result<WampId, WampError>>,
     },
+    Cancel {
+        request: WampId,
+        options: WampDict,
+        res: Sender<Result<Option<WampId>, WampError>>
+    },
+    // We don't send these yet. Needed for Dealer role
+    // Interrupt {
+    //     request: WampId,
+    //     options: WampDict,
+    //     res: Sender<Result<Option<WampId>, WampError>>
+    // }
 }
 
 /// Handler for any join realm request. This will send a HELLO and wait for the WELCOME response
@@ -349,12 +361,13 @@ pub async fn unregister(
 pub async fn invoke_yield(
     core: &mut Core<'_>,
     request: WampId,
+    options: WampDict,
     res: Result<(Option<WampArgs>, Option<WampKwArgs>), WampError>,
 ) -> Status {
     let msg: Msg = match res {
         Ok((arguments, arguments_kw)) => Msg::Yield {
             request,
-            options: WampDict::new(),
+            options,
             arguments,
             arguments_kw,
         },
@@ -374,6 +387,26 @@ pub async fn invoke_yield(
     Status::Ok
 }
 
+pub async fn cancel(
+    core: &mut Core<'_>,
+    request: WampId,
+    options: WampDict,
+    res: Sender<Result<Option<WampId>, WampError>>
+) -> Status {
+    if let Err(e) = core.send(
+        &Msg::Cancel {
+            request,
+            options,
+        }
+    ).await {
+        core.pending_requests.remove(&request);
+        let _ = res.send(Err(e));
+        return Status::Shutdown;
+    }
+
+    Status::Ok
+}
+
 pub async fn call(
     core: &mut Core<'_>,
     uri: WampString,
@@ -381,6 +414,7 @@ pub async fn call(
     arguments: Option<WampArgs>,
     arguments_kw: Option<WampKwArgs>,
     res: PendingCallResult,
+    can: Sender<Result<WampId, WampError>>,
 ) -> Status {
     let request = core.create_request();
 
@@ -400,6 +434,7 @@ pub async fn call(
     }
 
     core.pending_call.insert(request, res);
+    can.send(Ok(request));
 
     Status::Ok
 }

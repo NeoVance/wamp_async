@@ -13,6 +13,8 @@ pub enum WampOption<K, V> {
     SubscribeOption(K, V),
     /// A Caller role feature option
     CallOption(K, V),
+    /// A Caller role feature option
+    CancelOption(K, V),
     /// A Callee role feature option
     RegisterOption(K, V),
     /// An empty option
@@ -33,7 +35,7 @@ pub trait OptionBuilder {
 
         let (key, value) = match Self::validate_option(option.clone()) {
             Some(result) => result,
-            None => panic!("Can't create invalid option {:?}", option)
+            None => panic!("Can't create invalid option {:?}", option),
         };
 
         next_options.insert(key, value);
@@ -52,6 +54,7 @@ pub trait OptionBuilder {
             WampOption::SubscribeOption(key, value) => Some((key, value)),
             WampOption::RegisterOption(key, value) => Some((key, value)),
             WampOption::CallOption(key, value) => Some((key, value)),
+            WampOption::CancelOption(key, value) => Some((key, value)),
             WampOption::None => None,
         }
     }

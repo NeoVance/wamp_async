@@ -212,6 +212,46 @@ pub async fn call_result(
     Status::Ok
 }
 
+pub async fn interrupt(
+    core: &mut Core<'_>,
+    request: WampId,
+    options: WampDict
+) -> Status {
+    match core.pending_call.remove(&request) {
+        Some(r) => {
+            drop(r);
+
+            match &options["mode"] {
+                Arg::String(mode) => {
+                    if *mode == "kill".to_string() {
+                        let _ = core.send(&Msg::Error {
+                            typ: INVOCATION_ID as WampInteger,
+                            request,
+                            details: WampDict::new(),
+                            error: "wamp.async.rs.rpc.cancelled".to_string(),
+                            arguments: Some(vec![serde_json::Value::String("Invocation Cancelled".to_string())]),
+                            arguments_kw: None,
+                        }).await;
+                    }
+                    
+                    Status::Ok
+                },
+                _ => {
+                    error!("Received an invalid type for interrupt mode! : request id {}", request);
+                    Status::Shutdown
+                }
+            }
+        },
+        None => {
+            warn!(
+                "Server sent INTERRUPT for INVOCATION that isn't pending : request id {}",
+                request
+            );
+            Status::Ok
+        }
+    }
+}
+
 pub async fn goodbye(core: &mut Core<'_>, details: WampDict, reason: WampString) -> Status {
     debug!("Server sent goodbye : {:?} {:?}", details, reason);
 
